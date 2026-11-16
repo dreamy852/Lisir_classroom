@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MapPin, Plus } from 'lucide-react';
 import { AttendanceModule } from './components/AttendanceModule';
 import { CalendarModule } from './components/CalendarModule';
+import { DataManagementModule } from './components/DataManagementModule';
 import { RemainingLessonsModule } from './components/RemainingLessonsModule';
 import { TransactionLogModule } from './components/TransactionLogModule';
 import { AttendanceRecord } from './types/attendance';
@@ -360,7 +361,7 @@ function computeLessonStatus(remaining: number): RemainingLessonStatus {
   return '催繳';
 }
 
-type ActiveTab = 'transactions' | 'attendance' | 'remaining' | 'calendar';
+type ActiveTab = 'transactions' | 'attendance' | 'remaining' | 'calendar' | 'data';
 
 export default function App() {
   const [transactions, setTransactions] = useState<TransactionRecord[]>(loadInitialTransactions);
@@ -584,11 +585,107 @@ export default function App() {
     setCalendarEvents((prev) => prev.filter((ev) => ev.id !== id));
   };
 
+  const handleImportAllData = (payload: {
+    transactions: unknown[];
+    attendanceRecords: unknown[];
+    calendarEvents: unknown[];
+    hiddenStudentIds: unknown[];
+  }) => {
+    const normalizedTx = normalizeTransactions(payload.transactions);
+
+    const nameToIdentity = new Map<string, { id: string; name: string }>();
+    const usedIds = new Set<string>();
+    normalizedTx.forEach((tx) => {
+      const key = tx.studentName.trim().toLowerCase();
+      if (!nameToIdentity.has(key)) {
+        nameToIdentity.set(key, { id: tx.studentId, name: tx.studentName });
+      }
+      usedIds.add(tx.studentId);
+    });
+
+    const normalizedAtt: AttendanceRecord[] = [];
+    payload.attendanceRecords.forEach((item) => {
+      if (!item || typeof item !== 'object') return;
+      const rec = item as Record<string, unknown>;
+      if (
+        typeof rec.id !== 'string' ||
+        typeof rec.atnId !== 'string' ||
+        typeof rec.date !== 'string' ||
+        typeof rec.startTime !== 'string' ||
+        typeof rec.endTime !== 'string' ||
+        typeof rec.studentName !== 'string'
+      ) {
+        return;
+      }
+      const cleanName = rec.studentName.trim();
+      if (!cleanName) return;
+      const key = cleanName.toLowerCase();
+      let identity = nameToIdentity.get(key);
+      if (!identity) {
+        const candidateId =
+          isValidFiveDigitId(rec.studentId) && !usedIds.has(rec.studentId)
+            ? rec.studentId
+            : generateNextFiveDigitId(usedIds);
+        usedIds.add(candidateId);
+        identity = { id: candidateId, name: cleanName };
+        nameToIdentity.set(key, identity);
+      }
+      normalizedAtt.push({
+        id: rec.id,
+        atnId: rec.atnId,
+        date: rec.date,
+        startTime: rec.startTime,
+        endTime: rec.endTime,
+        studentId: identity.id,
+        studentName: identity.name,
+        attended: Boolean(rec.attended),
+        createdAt: typeof rec.createdAt === 'string' ? rec.createdAt : new Date().toISOString(),
+      });
+    });
+
+    const normalizedEvents: CalendarEvent[] = [];
+    payload.calendarEvents.forEach((item) => {
+      if (!item || typeof item !== 'object') return;
+      const ev = item as Record<string, unknown>;
+      if (
+        typeof ev.id !== 'string' ||
+        typeof ev.date !== 'string' ||
+        typeof ev.time !== 'string' ||
+        typeof ev.content !== 'string'
+      ) {
+        return;
+      }
+      normalizedEvents.push({
+        id: ev.id,
+        date: ev.date,
+        time: ev.time,
+        content: ev.content,
+        createdAt: typeof ev.createdAt === 'string' ? ev.createdAt : new Date().toISOString(),
+      });
+    });
+
+    const normalizedHidden = payload.hiddenStudentIds.filter(
+      (id): id is string => typeof id === 'string'
+    );
+
+    setTransactions(normalizedTx);
+    setAttendanceRecords(normalizedAtt);
+    setCalendarEvents(normalizedEvents);
+    setHiddenStudentIds(normalizedHidden);
+
+    return {
+      txCount: normalizedTx.length,
+      attCount: normalizedAtt.length,
+      eventCount: normalizedEvents.length,
+    };
+  };
+
   const tabs: { id: ActiveTab; label: string }[] = [
     { id: 'transactions', label: '交易紀錄' },
     { id: 'attendance', label: '學生出席紀錄' },
     { id: 'remaining', label: '剩餘堂數紀錄' },
     { id: 'calendar', label: '日曆系統' },
+    { id: 'data', label: '資料處理' },
   ];
 
   return (
@@ -720,6 +817,17 @@ export default function App() {
             isAddEventModalOpen={isAddEventModalOpen}
             onOpenAddEventModal={() => setIsAddEventModalOpen(true)}
             onCloseAddEventModal={() => setIsAddEventModalOpen(false)}
+          />
+        )}
+
+        {activeTab === 'data' && (
+          <DataManagementModule
+            transactions={transactions}
+            attendanceRecords={attendanceRecords}
+            calendarEvents={calendarEvents}
+            hiddenStudentIds={hiddenStudentIds}
+            classroomAddress={CLASSROOM_ADDRESS}
+            onImportAllData={handleImportAllData}
           />
         )}
       </main>
