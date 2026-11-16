@@ -1,0 +1,6 @@
+{
+  "name": "李Sir教室管理系統",
+  "description": "李Sir教室學生與剩餘課時管理系統（模組一：學生課時名冊）",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
